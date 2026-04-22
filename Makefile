@@ -1,9 +1,10 @@
-.PHONY: localstack-check localstack-start localstack-stop localstack-logs localstack-status localstack-start-legacy terraform-init terraform-plan terraform-apply terraform-destroy terraform-deploy terraform-deploy-plan terraform-deploy-destroy
+.PHONY: localstack-check localstack-start localstack-stop localstack-logs localstack-status localstack-start-legacy terraform-init terraform-plan terraform-apply terraform-destroy terraform-deploy terraform-deploy-plan terraform-deploy-destroy aws-tables aws-users aws-buckets aws-files aws-iam aws-logs aws-verify app-run
 
 LOCALSTACK_CONTAINER ?= localstack-main
 LOCALSTACK_IMAGE ?= localstack/localstack:latest
 LOCALSTACK_AUTH_TOKEN ?= ls-YuNE7033-KujO-tApe-WuPO-HoTo37910673
 TERRAFORM_IMAGE ?= hashicorp/terraform:1.8.5
+PYTHON_IMAGE ?= python:3.11-slim
 
 ifeq ($(OS),Windows_NT)
 PWD_MOUNT := $(shell powershell -NoProfile -Command "(Get-Location).Path")
@@ -46,6 +47,30 @@ terraform-deploy:
 
 terraform-deploy-destroy:
 	@powershell -NoProfile -Command "$$awsdir=Join-Path $$env:USERPROFILE '.aws'; if (-not (Test-Path $$awsdir)) { Write-Host 'Missing ~/.aws. Run: aws configure'; exit 1 }; docker run --rm -v \"$(PWD_MOUNT):/workspace\" -v \"$${awsdir}:/root/.aws:ro\" -e AWS_PROFILE=$${env:AWS_PROFILE} -w /workspace $(TERRAFORM_IMAGE) destroy -auto-approve -var=use_localstack=false -state=terraform.prod.tfstate"
+
+aws-tables:
+	@docker exec -t $(LOCALSTACK_CONTAINER) awslocal dynamodb list-tables
+
+aws-users:
+	@docker exec -t $(LOCALSTACK_CONTAINER) awslocal dynamodb scan --table-name baas-users
+
+aws-buckets:
+	@docker exec -t $(LOCALSTACK_CONTAINER) awslocal s3 ls
+
+aws-files:
+	@docker exec -t $(LOCALSTACK_CONTAINER) awslocal s3 ls s3://baas-user-files --recursive
+
+aws-iam:
+	@docker exec -t $(LOCALSTACK_CONTAINER) awslocal iam list-users
+
+aws-logs:
+	@docker exec -t $(LOCALSTACK_CONTAINER) awslocal logs describe-log-groups
+
+aws-verify:
+	@powershell -NoProfile -Command "Write-Host '== DynamoDB tables =='; docker exec -t $(LOCALSTACK_CONTAINER) awslocal dynamodb list-tables; Write-Host '== S3 buckets =='; docker exec -t $(LOCALSTACK_CONTAINER) awslocal s3 ls; Write-Host '== IAM users =='; docker exec -t $(LOCALSTACK_CONTAINER) awslocal iam list-users; Write-Host '== CloudWatch log groups =='; docker exec -t $(LOCALSTACK_CONTAINER) awslocal logs describe-log-groups"
+
+app-run:
+	@docker run --rm -v "$(PWD_MOUNT):/workspace" -w /workspace -e AWS_ENDPOINT_URL=http://host.docker.internal:4566 $(PYTHON_IMAGE) sh -c "pip install --quiet boto3 && python app.py"
 
 else
 PWD_MOUNT := $(CURDIR)
@@ -106,4 +131,35 @@ terraform-deploy:
 terraform-deploy-destroy:
 	@if [ ! -d "$$HOME/.aws" ]; then echo "Missing ~/.aws. Run: aws configure"; exit 1; fi
 	@docker run --rm -v "$(PWD_MOUNT):/workspace" -v "$$HOME/.aws:/root/.aws:ro" -e AWS_PROFILE="$$AWS_PROFILE" -w /workspace $(TERRAFORM_IMAGE) destroy -auto-approve -var=use_localstack=false -state=terraform.prod.tfstate
+
+aws-tables:
+	@docker exec -t $(LOCALSTACK_CONTAINER) awslocal dynamodb list-tables
+
+aws-users:
+	@docker exec -t $(LOCALSTACK_CONTAINER) awslocal dynamodb scan --table-name baas-users
+
+aws-buckets:
+	@docker exec -t $(LOCALSTACK_CONTAINER) awslocal s3 ls
+
+aws-files:
+	@docker exec -t $(LOCALSTACK_CONTAINER) awslocal s3 ls s3://baas-user-files --recursive
+
+aws-iam:
+	@docker exec -t $(LOCALSTACK_CONTAINER) awslocal iam list-users
+
+aws-logs:
+	@docker exec -t $(LOCALSTACK_CONTAINER) awslocal logs describe-log-groups
+
+aws-verify:
+	@echo "== DynamoDB tables =="
+	@docker exec -t $(LOCALSTACK_CONTAINER) awslocal dynamodb list-tables
+	@echo "== S3 buckets =="
+	@docker exec -t $(LOCALSTACK_CONTAINER) awslocal s3 ls
+	@echo "== IAM users =="
+	@docker exec -t $(LOCALSTACK_CONTAINER) awslocal iam list-users
+	@echo "== CloudWatch log groups =="
+	@docker exec -t $(LOCALSTACK_CONTAINER) awslocal logs describe-log-groups
+
+app-run:
+	@docker run --rm -v "$(PWD_MOUNT):/workspace" -w /workspace -e AWS_ENDPOINT_URL=http://host.docker.internal:4566 $(PYTHON_IMAGE) sh -c "pip install --quiet boto3 && python app.py"
 endif
