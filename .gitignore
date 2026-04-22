@@ -1,0 +1,26 @@
+# Terraform
+.terraform/
+.terraform.lock.hcl.bak
+terraform.tfstate
+terraform.tfstate.*
+terraform.prod.tfstate
+terraform.prod.tfstate.*
+crash.log
+crash.*.log
+*.tfvars
+*.tfvars.json
+!example.tfvars
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Editor
+.idea/
+.vscode/
+*.swp
+.DS_Store
+.claude/
