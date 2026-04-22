@@ -1,13 +1,14 @@
 """Client Python simulant une app mobile appelant le BaaS (DynamoDB + S3)."""
 
+import os
 import uuid
 from datetime import datetime
 
 import boto3
 
-# Connexion LocalStack
+# Connexion LocalStack (override via AWS_ENDPOINT_URL pour exec dans un container Docker)
 config = dict(
-    endpoint_url="http://localhost:4566",
+    endpoint_url=os.getenv("AWS_ENDPOINT_URL", "http://localhost:4566"),
     region_name="us-east-1",
     aws_access_key_id="test",
     aws_secret_access_key="test",
