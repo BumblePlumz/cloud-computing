@@ -7,26 +7,38 @@ terraform {
   }
 }
 
-provider "aws" {
-  region                      = "eu-west-1"
-  access_key                  = "test"
-  secret_key                  = "test"
-  skip_credentials_validation = true
-  skip_metadata_api_check     = true
-  skip_requesting_account_id  = true
+variable "use_localstack" {
+  description = "true = LocalStack (dev), false = AWS réel (prod)"
+  type        = bool
+  default     = true
+}
 
-  endpoints {
-    iam         = "http://localhost:4566"
-    s3          = "http://localhost:4566"
-    lambda      = "http://localhost:4566"
-    dynamodb    = "http://localhost:4566"
-    kms         = "http://localhost:4566"
-    cloudwatch  = "http://localhost:4566"
-    logs        = "http://localhost:4566"
-    rds         = "http://localhost:4566"
-    ec2         = "http://localhost:4566"
-    sns         = "http://localhost:4566"
-    sqs         = "http://localhost:4566"
-    autoscaling = "http://localhost:4566"
+variable "aws_region" {
+  type    = string
+  default = "us-east-1"
+}
+
+locals {
+  localstack_url = "http://host.docker.internal:4566"
+}
+
+provider "aws" {
+  region = var.aws_region
+
+  access_key                  = var.use_localstack ? "test" : null
+  secret_key                  = var.use_localstack ? "test" : null
+  skip_credentials_validation = var.use_localstack
+  skip_metadata_api_check     = var.use_localstack
+  skip_requesting_account_id  = var.use_localstack
+
+  dynamic "endpoints" {
+    for_each = var.use_localstack ? [1] : []
+    content {
+      iam      = local.localstack_url
+      s3       = local.localstack_url
+      dynamodb = local.localstack_url
+      sts      = local.localstack_url
+      logs     = local.localstack_url
+    }
   }
 }
