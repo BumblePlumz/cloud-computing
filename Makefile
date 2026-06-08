@@ -1,21 +1,22 @@
-.PHONY: localstack-check localstack-start localstack-start-pro localstack-stop localstack-logs localstack-status localstack-start-legacy terraform-init terraform-plan terraform-apply terraform-destroy terraform-deploy terraform-deploy-plan terraform-deploy-destroy aws-tables aws-users aws-buckets aws-files aws-iam aws-logs aws-verify app-run
+.PHONY: up down faas-url faas-test localstack-check localstack-start localstack-start-pro localstack-stop localstack-logs localstack-status localstack-start-legacy terraform-init terraform-plan terraform-apply terraform-destroy terraform-deploy terraform-deploy-plan terraform-deploy-destroy aws-tables aws-users aws-buckets aws-files aws-iam aws-logs aws-verify app-run
 
 LOCALSTACK_CONTAINER ?= localstack-main
 LOCALSTACK_IMAGE ?= localstack/localstack:3.8.1
 LOCALSTACK_PRO_IMAGE ?= localstack/localstack:latest
 LOCALSTACK_AUTH_TOKEN ?=
-SERVICES ?= s3,dynamodb,iam,logs,sts
+SERVICES ?= s3,dynamodb,iam,logs,sts,lambda,apigateway
 TERRAFORM_IMAGE ?= hashicorp/terraform:1.8.5
 PYTHON_IMAGE ?= python:3.11-slim
 
 ifeq ($(OS),Windows_NT)
 PWD_MOUNT := $(shell powershell -NoProfile -Command "(Get-Location).Path")
+FAAS_MOUNT := $(PWD_MOUNT)\02-faas
 
 localstack-check:
 	@powershell -NoProfile -Command "Write-Host '== DOCKER CLIENT =='; docker version --format 'Client {{.Client.Version}}'; Write-Host ''; Write-Host '== DOCKER SERVER =='; docker version --format 'Server {{.Server.Version}}'; Write-Host ''; Write-Host '== LOCALSTACK_AUTH_TOKEN =='; if ('$(TOKEN)' -or '$(LOCALSTACK_AUTH_TOKEN)' -or $$env:LOCALSTACK_AUTH_TOKEN) { Write-Host 'present' } else { Write-Host 'missing' }"
 
 localstack-start:
-	@powershell -NoProfile -Command "docker rm -f $(LOCALSTACK_CONTAINER) 2>$$null | Out-Null; docker run -d --name $(LOCALSTACK_CONTAINER) -p 4566:4566 -e AWS_DEFAULT_REGION=us-east-1 -e SERVICES=$(SERVICES) -v /var/run/docker.sock:/var/run/docker.sock $(LOCALSTACK_IMAGE) | Out-Null; docker logs -n 40 $(LOCALSTACK_CONTAINER)"
+	@powershell -NoProfile -Command "docker rm -f $(LOCALSTACK_CONTAINER) 2>$$null | Out-Null; docker run -d --name $(LOCALSTACK_CONTAINER) -p 4566:4566 -e AWS_DEFAULT_REGION=us-east-1 -e SERVICES=$(SERVICES) -e LAMBDA_DOCKER_NETWORK=bridge -v /var/run/docker.sock:/var/run/docker.sock $(LOCALSTACK_IMAGE) | Out-Null; docker logs -n 40 $(LOCALSTACK_CONTAINER)"
 
 localstack-start-pro:
 	@powershell -NoProfile -Command "$$token='$(TOKEN)'; if (-not $$token) { $$token='$(LOCALSTACK_AUTH_TOKEN)' }; if (-not $$token) { $$token=$$env:LOCALSTACK_AUTH_TOKEN }; if (-not $$token) { Write-Host 'Missing token. Use: make localstack-start-pro TOKEN=your_token or set LOCALSTACK_AUTH_TOKEN'; exit 1 }; docker rm -f $(LOCALSTACK_CONTAINER) 2>$$null | Out-Null; docker run -d --name $(LOCALSTACK_CONTAINER) -p 4566:4566 -e LOCALSTACK_AUTH_TOKEN=$$token -e AWS_DEFAULT_REGION=us-east-1 -e SERVICES=$(SERVICES) -v /var/run/docker.sock:/var/run/docker.sock $(LOCALSTACK_PRO_IMAGE) | Out-Null; docker logs -n 40 $(LOCALSTACK_CONTAINER)"
@@ -77,8 +78,21 @@ aws-verify:
 app-run:
 	@docker run --rm -v "$(PWD_MOUNT):/workspace" -w /workspace -e AWS_ENDPOINT_URL=http://host.docker.internal:4566 $(PYTHON_IMAGE) sh -c "pip install --quiet boto3 && python app.py"
 
+# Tout-en-un : LocalStack (tous services) + deploie BaaS (racine) + FaaS (02-faas)
+up:
+	@powershell -NoProfile -Command "docker rm -f $(LOCALSTACK_CONTAINER) 2>$$null | Out-Null; docker run -d --name $(LOCALSTACK_CONTAINER) -p 4566:4566 -e AWS_DEFAULT_REGION=us-east-1 -e SERVICES=$(SERVICES) -e LAMBDA_DOCKER_NETWORK=bridge -v /var/run/docker.sock:/var/run/docker.sock $(LOCALSTACK_IMAGE) | Out-Null; Write-Host 'Attente de LocalStack...'; $$ok=$$false; for($$i=0;$$i -lt 40;$$i++){ try { $$h=Invoke-RestMethod 'http://localhost:4566/_localstack/health' -TimeoutSec 3; if($$h.services.lambda -and $$h.services.apigateway -and $$h.services.dynamodb){$$ok=$$true;break} } catch {}; Start-Sleep 2 }; if(-not $$ok){ Write-Host 'ERREUR: LocalStack non pret'; exit 1 }; Write-Host 'LocalStack pret. Deploiement...'"
+	@docker run --rm -v "$(PWD_MOUNT):/workspace" -w /workspace $(TERRAFORM_IMAGE) init -input=false
+	@docker run --rm -v "$(PWD_MOUNT):/workspace" -w /workspace $(TERRAFORM_IMAGE) apply -auto-approve
+	@docker run --rm -v "$(FAAS_MOUNT):/workspace" -w /workspace $(TERRAFORM_IMAGE) init -input=false
+	@docker run --rm -v "$(FAAS_MOUNT):/workspace" -w /workspace $(TERRAFORM_IMAGE) apply -auto-approve
+	@powershell -NoProfile -Command "Write-Host ''; Write-Host 'FaaS - URL de base (a coller dans le front) :'; $$u=(docker run --rm -v '$(FAAS_MOUNT):/workspace' -w /workspace $(TERRAFORM_IMAGE) output -raw invoke_url); Write-Host $$u"
+
+faas-test:
+	@powershell -NoProfile -Command "$$u=(docker run --rm -v '$(FAAS_MOUNT):/workspace' -w /workspace $(TERRAFORM_IMAGE) output -raw invoke_url); Write-Host \"== GET /hello ==\"; (Invoke-WebRequest -UseBasicParsing \"$$u/hello?nom=Alice\").Content; Write-Host \"`n== POST /users ==\"; (Invoke-WebRequest -UseBasicParsing -Method Post -ContentType application/json -Body '{\"nom\":\"Alice Dupont\",\"email\":\"alice@exemple.fr\"}' \"$$u/users\").Content; Write-Host \"`n== GET /users ==\"; (Invoke-WebRequest -UseBasicParsing \"$$u/users\").Content"
+
 else
 PWD_MOUNT := $(CURDIR)
+FAAS_MOUNT := $(PWD_MOUNT)/02-faas
 
 localstack-check:
 	@echo "== DOCKER CLIENT =="
@@ -92,7 +106,7 @@ localstack-check:
 
 localstack-start:
 	@docker rm -f $(LOCALSTACK_CONTAINER) >/dev/null 2>&1 || true
-	@docker run -d --name $(LOCALSTACK_CONTAINER) -p 4566:4566 -e AWS_DEFAULT_REGION=us-east-1 -e SERVICES=$(SERVICES) -v /var/run/docker.sock:/var/run/docker.sock $(LOCALSTACK_IMAGE) >/dev/null
+	@docker run -d --name $(LOCALSTACK_CONTAINER) -p 4566:4566 -e AWS_DEFAULT_REGION=us-east-1 -e SERVICES=$(SERVICES) -e LAMBDA_DOCKER_NETWORK=bridge -v /var/run/docker.sock:/var/run/docker.sock $(LOCALSTACK_IMAGE) >/dev/null
 	@docker logs -n 40 $(LOCALSTACK_CONTAINER)
 
 localstack-start-pro:
@@ -172,4 +186,28 @@ aws-verify:
 
 app-run:
 	@docker run --rm -v "$(PWD_MOUNT):/workspace" -w /workspace -e AWS_ENDPOINT_URL=http://host.docker.internal:4566 $(PYTHON_IMAGE) sh -c "pip install --quiet boto3 && python app.py"
+
+up:
+	@docker rm -f $(LOCALSTACK_CONTAINER) >/dev/null 2>&1 || true
+	@docker run -d --name $(LOCALSTACK_CONTAINER) -p 4566:4566 -e AWS_DEFAULT_REGION=us-east-1 -e SERVICES=$(SERVICES) -e LAMBDA_DOCKER_NETWORK=bridge -v /var/run/docker.sock:/var/run/docker.sock $(LOCALSTACK_IMAGE) >/dev/null
+	@echo "Attente de LocalStack..."
+	@for i in $$(seq 1 40); do curl -s http://localhost:4566/_localstack/health | grep -Eq 'apigateway"[: ]+"available' && break; sleep 2; done
+	@docker run --rm -v "$(PWD_MOUNT):/workspace" -w /workspace $(TERRAFORM_IMAGE) init -input=false
+	@docker run --rm -v "$(PWD_MOUNT):/workspace" -w /workspace $(TERRAFORM_IMAGE) apply -auto-approve
+	@docker run --rm -v "$(FAAS_MOUNT):/workspace" -w /workspace $(TERRAFORM_IMAGE) init -input=false
+	@docker run --rm -v "$(FAAS_MOUNT):/workspace" -w /workspace $(TERRAFORM_IMAGE) apply -auto-approve
+	@echo "FaaS URL :"; docker run --rm -v "$(FAAS_MOUNT):/workspace" -w /workspace $(TERRAFORM_IMAGE) output -raw invoke_url; echo ""
+
+faas-test:
+	@u=$$(docker run --rm -v "$(FAAS_MOUNT):/workspace" -w /workspace $(TERRAFORM_IMAGE) output -raw invoke_url); \
+	echo "== GET /hello =="; curl -s "$$u/hello?nom=Alice"; echo; \
+	echo "== POST /users =="; curl -s -X POST -H 'Content-Type: application/json' -d '{"nom":"Alice Dupont","email":"alice@exemple.fr"}' "$$u/users"; echo; \
+	echo "== GET /users =="; curl -s "$$u/users"; echo
 endif
+
+# --- Cibles communes (orchestration multi-projets) ---
+down:
+	@docker rm -f $(LOCALSTACK_CONTAINER)
+
+faas-url:
+	@docker run --rm -v "$(FAAS_MOUNT):/workspace" -w /workspace $(TERRAFORM_IMAGE) output -raw invoke_url
