@@ -1,4 +1,4 @@
-.PHONY: up down faas-url faas-test localstack-check localstack-start localstack-start-pro localstack-stop localstack-logs localstack-status localstack-start-legacy terraform-init terraform-plan terraform-apply terraform-destroy terraform-deploy terraform-deploy-plan terraform-deploy-destroy aws-tables aws-users aws-buckets aws-files aws-iam aws-logs aws-verify app-run
+.PHONY: up down faas-url faas-test iam-verify iam-policy localstack-check localstack-start localstack-start-pro localstack-stop localstack-logs localstack-status localstack-start-legacy terraform-init terraform-plan terraform-apply terraform-destroy terraform-deploy terraform-deploy-plan terraform-deploy-destroy aws-tables aws-users aws-buckets aws-files aws-iam aws-logs aws-verify app-run
 
 LOCALSTACK_CONTAINER ?= localstack-main
 LOCALSTACK_IMAGE ?= localstack/localstack:3.8.1
@@ -11,6 +11,7 @@ PYTHON_IMAGE ?= python:3.11-slim
 ifeq ($(OS),Windows_NT)
 PWD_MOUNT := $(shell powershell -NoProfile -Command "(Get-Location).Path")
 FAAS_MOUNT := $(PWD_MOUNT)\02-faas
+IAM_MOUNT := $(PWD_MOUNT)\03-iam
 
 localstack-check:
 	@powershell -NoProfile -Command "Write-Host '== DOCKER CLIENT =='; docker version --format 'Client {{.Client.Version}}'; Write-Host ''; Write-Host '== DOCKER SERVER =='; docker version --format 'Server {{.Server.Version}}'; Write-Host ''; Write-Host '== LOCALSTACK_AUTH_TOKEN =='; if ('$(TOKEN)' -or '$(LOCALSTACK_AUTH_TOKEN)' -or $$env:LOCALSTACK_AUTH_TOKEN) { Write-Host 'present' } else { Write-Host 'missing' }"
@@ -85,6 +86,8 @@ up:
 	@docker run --rm -v "$(PWD_MOUNT):/workspace" -w /workspace $(TERRAFORM_IMAGE) apply -auto-approve
 	@docker run --rm -v "$(FAAS_MOUNT):/workspace" -w /workspace $(TERRAFORM_IMAGE) init -input=false
 	@docker run --rm -v "$(FAAS_MOUNT):/workspace" -w /workspace $(TERRAFORM_IMAGE) apply -auto-approve
+	@docker run --rm -v "$(IAM_MOUNT):/workspace" -w /workspace $(TERRAFORM_IMAGE) init -input=false
+	@docker run --rm -v "$(IAM_MOUNT):/workspace" -w /workspace $(TERRAFORM_IMAGE) apply -auto-approve
 	@powershell -NoProfile -Command "Write-Host ''; Write-Host 'FaaS - URL de base (a coller dans le front) :'; $$u=(docker run --rm -v '$(FAAS_MOUNT):/workspace' -w /workspace $(TERRAFORM_IMAGE) output -raw invoke_url); Write-Host $$u"
 
 faas-test:
@@ -93,6 +96,7 @@ faas-test:
 else
 PWD_MOUNT := $(CURDIR)
 FAAS_MOUNT := $(PWD_MOUNT)/02-faas
+IAM_MOUNT := $(PWD_MOUNT)/03-iam
 
 localstack-check:
 	@echo "== DOCKER CLIENT =="
@@ -196,6 +200,8 @@ up:
 	@docker run --rm -v "$(PWD_MOUNT):/workspace" -w /workspace $(TERRAFORM_IMAGE) apply -auto-approve
 	@docker run --rm -v "$(FAAS_MOUNT):/workspace" -w /workspace $(TERRAFORM_IMAGE) init -input=false
 	@docker run --rm -v "$(FAAS_MOUNT):/workspace" -w /workspace $(TERRAFORM_IMAGE) apply -auto-approve
+	@docker run --rm -v "$(IAM_MOUNT):/workspace" -w /workspace $(TERRAFORM_IMAGE) init -input=false
+	@docker run --rm -v "$(IAM_MOUNT):/workspace" -w /workspace $(TERRAFORM_IMAGE) apply -auto-approve
 	@echo "FaaS URL :"; docker run --rm -v "$(FAAS_MOUNT):/workspace" -w /workspace $(TERRAFORM_IMAGE) output -raw invoke_url; echo ""
 
 faas-test:
@@ -211,3 +217,11 @@ down:
 
 faas-url:
 	@docker run --rm -v "$(FAAS_MOUNT):/workspace" -w /workspace $(TERRAFORM_IMAGE) output -raw invoke_url
+
+iam-verify:
+	@docker exec -t $(LOCALSTACK_CONTAINER) awslocal iam list-users
+	@docker exec -t $(LOCALSTACK_CONTAINER) awslocal iam list-groups-for-user --user-name collegue-dupont
+	@docker exec -t $(LOCALSTACK_CONTAINER) awslocal iam list-attached-group-policies --group-name developers
+
+iam-policy:
+	@docker exec -t $(LOCALSTACK_CONTAINER) awslocal iam get-policy-version --policy-arn arn:aws:iam::000000000000:policy/DevEC2LimitedPolicy --version-id v1 --query "PolicyVersion.Document"
