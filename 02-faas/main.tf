@@ -35,11 +35,12 @@ provider "aws" {
   dynamic "endpoints" {
     for_each = var.use_localstack ? [1] : []
     content {
-      iam      = local.localstack_url
-      s3       = local.localstack_url
-      dynamodb = local.localstack_url
-      sts      = local.localstack_url
-      logs     = local.localstack_url
+      iam        = local.localstack_url
+      sts        = local.localstack_url
+      lambda     = local.localstack_url
+      apigateway = local.localstack_url
+      dynamodb   = local.localstack_url
+      logs       = local.localstack_url
     }
   }
 }

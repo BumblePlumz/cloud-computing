@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FaaS Demo — front</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { font-family: system-ui, sans-serif; max-width: 640px; margin: 40px auto; padding: 0 16px; line-height: 1.5; }
+    h1 { font-size: 1.4rem; }
+    input, button { font: inherit; padding: 8px 10px; border-radius: 8px; border: 1px solid #8884; }
+    button { cursor: pointer; background: #2563eb; color: #fff; border: none; }
+    button:hover { background: #1d4ed8; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
+    .row input { flex: 1; min-width: 140px; }
+    #base { width: 100%; }
+    ul { padding-left: 0; list-style: none; }
+    li { border: 1px solid #8883; border-radius: 8px; padding: 8px 12px; margin: 6px 0; }
+    small { opacity: .6; }
+    .muted { opacity: .7; font-size: .9rem; }
+  </style>
+</head>
+<body>
+  <h1>FaaS Demo — Lambda + API Gateway</h1>
+  <p class="muted">Ce front n'a aucun serveur : il appelle directement l'URL de l'API Gateway (qui invoque la Lambda, qui lit/ecrit dans DynamoDB).</p>
+
+  <label>URL de base de l'API (sortie <code>invoke_url</code> de Terraform) :</label>
+  <div class="row"><input id="base" placeholder="http://localhost:4566/restapis/XXXX/dev/_user_request_" /></div>
+
+  <h2 style="font-size:1.1rem">Creer un utilisateur</h2>
+  <div class="row">
+    <input id="nom" placeholder="Nom" value="Charlie Durand" />
+    <input id="email" placeholder="Email" value="charlie@exemple.fr" />
+    <button onclick="creer()">POST /users</button>
+  </div>
+
+  <h2 style="font-size:1.1rem">Utilisateurs</h2>
+  <div class="row"><button onclick="charger()">GET /users</button></div>
+  <ul id="liste"></ul>
+
+  <script>
+    const base = document.getElementById("base");
+    // pre-remplit avec la derniere URL utilisee
+    base.value = localStorage.getItem("faas_base") || "";
+    base.addEventListener("change", () => localStorage.setItem("faas_base", base.value.trim()));
+
+    function url(path) { return base.value.trim().replace(/\/$/, "") + path; }
+
+    async function charger() {
+      const liste = document.getElementById("liste");
+      liste.innerHTML = "<li class='muted'>Chargement…</li>";
+      try {
+        const r = await fetch(url("/users"));
+        const data = await r.json();
+        liste.innerHTML = data.users.map(u =>
+          `<li><strong>${u.nom}</strong> — ${u.email}<br><small>${u.userId}</small></li>`
+        ).join("") || "<li class='muted'>Aucun utilisateur.</li>";
+      } catch (e) {
+        liste.innerHTML = `<li>Erreur : ${e}. Verifie l'URL de base.</li>`;
+      }
+    }
+
+    async function creer() {
+      const body = {
+        nom: document.getElementById("nom").value,
+        email: document.getElementById("email").value,
+      };
+      const r = await fetch(url("/users"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      await r.json();
+      charger();
+    }
+  </script>
+</body>
+</html>

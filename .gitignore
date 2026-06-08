@@ -11,6 +11,12 @@ crash.*.log
 *.tfvars.json
 !example.tfvars
 
+# Build artifacts
+lambda.zip
+
+# Playwright MCP
+.playwright-mcp/
+
 # Python
 __pycache__/
 *.py[cod]
