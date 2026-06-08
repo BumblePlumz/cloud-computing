@@ -1,4 +1,4 @@
-.PHONY: up down faas-url faas-test iam-verify iam-policy benchmark storage-verify localstack-check localstack-start localstack-start-pro localstack-stop localstack-logs localstack-status localstack-start-legacy terraform-init terraform-plan terraform-apply terraform-destroy terraform-deploy terraform-deploy-plan terraform-deploy-destroy aws-tables aws-users aws-buckets aws-files aws-iam aws-logs aws-verify app-run
+.PHONY: up down faas-url faas-test iam-verify iam-policy benchmark storage-verify s3-audit localstack-check localstack-start localstack-start-pro localstack-stop localstack-logs localstack-status localstack-start-legacy terraform-init terraform-plan terraform-apply terraform-destroy terraform-deploy terraform-deploy-plan terraform-deploy-destroy aws-tables aws-users aws-buckets aws-files aws-iam aws-logs aws-verify app-run
 
 LOCALSTACK_CONTAINER ?= localstack-main
 LOCALSTACK_IMAGE ?= localstack/localstack:3.8.1
@@ -13,6 +13,7 @@ PWD_MOUNT := $(shell powershell -NoProfile -Command "(Get-Location).Path")
 FAAS_MOUNT := $(PWD_MOUNT)\02-faas
 IAM_MOUNT := $(PWD_MOUNT)\03-iam
 STORAGE_MOUNT := $(PWD_MOUNT)\04-stockage
+VULN_MOUNT := $(PWD_MOUNT)\05-vulnerabilite
 
 localstack-check:
 	@powershell -NoProfile -Command "Write-Host '== DOCKER CLIENT =='; docker version --format 'Client {{.Client.Version}}'; Write-Host ''; Write-Host '== DOCKER SERVER =='; docker version --format 'Server {{.Server.Version}}'; Write-Host ''; Write-Host '== LOCALSTACK_AUTH_TOKEN =='; if ('$(TOKEN)' -or '$(LOCALSTACK_AUTH_TOKEN)' -or $$env:LOCALSTACK_AUTH_TOKEN) { Write-Host 'present' } else { Write-Host 'missing' }"
@@ -91,6 +92,8 @@ up:
 	@docker run --rm -v "$(IAM_MOUNT):/workspace" -w /workspace $(TERRAFORM_IMAGE) apply -auto-approve
 	@docker run --rm -v "$(STORAGE_MOUNT):/workspace" -w /workspace $(TERRAFORM_IMAGE) init -input=false
 	@docker run --rm -v "$(STORAGE_MOUNT):/workspace" -w /workspace $(TERRAFORM_IMAGE) apply -auto-approve
+	@docker run --rm -v "$(VULN_MOUNT):/workspace" -w /workspace $(TERRAFORM_IMAGE) init -input=false
+	@docker run --rm -v "$(VULN_MOUNT):/workspace" -w /workspace $(TERRAFORM_IMAGE) apply -auto-approve
 	@powershell -NoProfile -Command "Write-Host ''; Write-Host 'FaaS - URL de base (a coller dans le front) :'; $$u=(docker run --rm -v '$(FAAS_MOUNT):/workspace' -w /workspace $(TERRAFORM_IMAGE) output -raw invoke_url); Write-Host $$u"
 
 faas-test:
@@ -101,6 +104,7 @@ PWD_MOUNT := $(CURDIR)
 FAAS_MOUNT := $(PWD_MOUNT)/02-faas
 IAM_MOUNT := $(PWD_MOUNT)/03-iam
 STORAGE_MOUNT := $(PWD_MOUNT)/04-stockage
+VULN_MOUNT := $(PWD_MOUNT)/05-vulnerabilite
 
 localstack-check:
 	@echo "== DOCKER CLIENT =="
@@ -208,6 +212,8 @@ up:
 	@docker run --rm -v "$(IAM_MOUNT):/workspace" -w /workspace $(TERRAFORM_IMAGE) apply -auto-approve
 	@docker run --rm -v "$(STORAGE_MOUNT):/workspace" -w /workspace $(TERRAFORM_IMAGE) init -input=false
 	@docker run --rm -v "$(STORAGE_MOUNT):/workspace" -w /workspace $(TERRAFORM_IMAGE) apply -auto-approve
+	@docker run --rm -v "$(VULN_MOUNT):/workspace" -w /workspace $(TERRAFORM_IMAGE) init -input=false
+	@docker run --rm -v "$(VULN_MOUNT):/workspace" -w /workspace $(TERRAFORM_IMAGE) apply -auto-approve
 	@echo "FaaS URL :"; docker run --rm -v "$(FAAS_MOUNT):/workspace" -w /workspace $(TERRAFORM_IMAGE) output -raw invoke_url; echo ""
 
 faas-test:
@@ -238,3 +244,6 @@ benchmark:
 storage-verify:
 	@docker exec -t $(LOCALSTACK_CONTAINER) awslocal s3 ls
 	@docker exec -t $(LOCALSTACK_CONTAINER) awslocal ec2 describe-volumes --query "Volumes[].{ID:VolumeId,Size:Size,Type:VolumeType}"
+
+s3-audit:
+	@docker run --rm -v "$(VULN_MOUNT):/workspace" -w /workspace -e AWS_ENDPOINT_URL=http://host.docker.internal:4566 $(PYTHON_IMAGE) sh -c "pip install --quiet boto3 && python audit.py"
