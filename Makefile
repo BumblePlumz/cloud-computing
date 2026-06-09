@@ -1,10 +1,10 @@
-.PHONY: up down faas-url faas-test iam-verify iam-policy benchmark storage-verify s3-audit scaling-validate localstack-check localstack-start localstack-start-pro localstack-stop localstack-logs localstack-status localstack-start-legacy terraform-init terraform-plan terraform-apply terraform-destroy terraform-deploy terraform-deploy-plan terraform-deploy-destroy aws-tables aws-users aws-buckets aws-files aws-iam aws-logs aws-verify app-run
+.PHONY: up down faas-url faas-test iam-verify iam-policy benchmark storage-verify s3-audit scaling-validate sec-verify localstack-check localstack-start localstack-start-pro localstack-stop localstack-logs localstack-status localstack-start-legacy terraform-init terraform-plan terraform-apply terraform-destroy terraform-deploy terraform-deploy-plan terraform-deploy-destroy aws-tables aws-users aws-buckets aws-files aws-iam aws-logs aws-verify app-run
 
 LOCALSTACK_CONTAINER ?= localstack-main
 LOCALSTACK_IMAGE ?= localstack/localstack:3.8.1
 LOCALSTACK_PRO_IMAGE ?= localstack/localstack:latest
 LOCALSTACK_AUTH_TOKEN ?=
-SERVICES ?= s3,dynamodb,iam,logs,sts,lambda,apigateway,ec2
+SERVICES ?= s3,dynamodb,iam,logs,sts,lambda,apigateway,ec2,kms,sns,cloudwatch
 TERRAFORM_IMAGE ?= hashicorp/terraform:1.8.5
 PYTHON_IMAGE ?= python:3.11-slim
 
@@ -15,6 +15,7 @@ IAM_MOUNT := $(PWD_MOUNT)\03-iam
 STORAGE_MOUNT := $(PWD_MOUNT)\04-stockage
 VULN_MOUNT := $(PWD_MOUNT)\05-vulnerabilite
 SCALING_MOUNT := $(PWD_MOUNT)\06-scaling
+SEC_MOUNT := $(PWD_MOUNT)\07-securite
 
 localstack-check:
 	@powershell -NoProfile -Command "Write-Host '== DOCKER CLIENT =='; docker version --format 'Client {{.Client.Version}}'; Write-Host ''; Write-Host '== DOCKER SERVER =='; docker version --format 'Server {{.Server.Version}}'; Write-Host ''; Write-Host '== LOCALSTACK_AUTH_TOKEN =='; if ('$(TOKEN)' -or '$(LOCALSTACK_AUTH_TOKEN)' -or $$env:LOCALSTACK_AUTH_TOKEN) { Write-Host 'present' } else { Write-Host 'missing' }"
@@ -95,6 +96,8 @@ up:
 	@docker run --rm -v "$(STORAGE_MOUNT):/workspace" -w /workspace $(TERRAFORM_IMAGE) apply -auto-approve
 	@docker run --rm -v "$(VULN_MOUNT):/workspace" -w /workspace $(TERRAFORM_IMAGE) init -input=false
 	@docker run --rm -v "$(VULN_MOUNT):/workspace" -w /workspace $(TERRAFORM_IMAGE) apply -auto-approve
+	@docker run --rm -v "$(SEC_MOUNT):/workspace" -w /workspace $(TERRAFORM_IMAGE) init -input=false
+	@docker run --rm -v "$(SEC_MOUNT):/workspace" -w /workspace $(TERRAFORM_IMAGE) apply -auto-approve
 	@powershell -NoProfile -Command "Write-Host ''; Write-Host 'FaaS - URL de base (a coller dans le front) :'; $$u=(docker run --rm -v '$(FAAS_MOUNT):/workspace' -w /workspace $(TERRAFORM_IMAGE) output -raw invoke_url); Write-Host $$u"
 
 faas-test:
@@ -107,6 +110,7 @@ IAM_MOUNT := $(PWD_MOUNT)/03-iam
 STORAGE_MOUNT := $(PWD_MOUNT)/04-stockage
 VULN_MOUNT := $(PWD_MOUNT)/05-vulnerabilite
 SCALING_MOUNT := $(PWD_MOUNT)/06-scaling
+SEC_MOUNT := $(PWD_MOUNT)/07-securite
 
 localstack-check:
 	@echo "== DOCKER CLIENT =="
@@ -216,6 +220,8 @@ up:
 	@docker run --rm -v "$(STORAGE_MOUNT):/workspace" -w /workspace $(TERRAFORM_IMAGE) apply -auto-approve
 	@docker run --rm -v "$(VULN_MOUNT):/workspace" -w /workspace $(TERRAFORM_IMAGE) init -input=false
 	@docker run --rm -v "$(VULN_MOUNT):/workspace" -w /workspace $(TERRAFORM_IMAGE) apply -auto-approve
+	@docker run --rm -v "$(SEC_MOUNT):/workspace" -w /workspace $(TERRAFORM_IMAGE) init -input=false
+	@docker run --rm -v "$(SEC_MOUNT):/workspace" -w /workspace $(TERRAFORM_IMAGE) apply -auto-approve
 	@echo "FaaS URL :"; docker run --rm -v "$(FAAS_MOUNT):/workspace" -w /workspace $(TERRAFORM_IMAGE) output -raw invoke_url; echo ""
 
 faas-test:
@@ -254,3 +260,9 @@ s3-audit:
 scaling-validate:
 	@docker run --rm -v "$(SCALING_MOUNT):/workspace" -w /workspace $(TERRAFORM_IMAGE) init -backend=false -input=false
 	@docker run --rm -v "$(SCALING_MOUNT):/workspace" -w /workspace $(TERRAFORM_IMAGE) validate
+
+sec-verify:
+	@docker exec -t $(LOCALSTACK_CONTAINER) awslocal kms list-aliases --query "Aliases[?AliasName=='alias/app-securisee'].AliasName"
+	@docker exec -t $(LOCALSTACK_CONTAINER) awslocal iam list-roles --query "Roles[?RoleName=='app-backend-role'].RoleName"
+	@docker exec -t $(LOCALSTACK_CONTAINER) awslocal sns list-topics
+	@docker exec -t $(LOCALSTACK_CONTAINER) awslocal cloudwatch describe-alarms --query "MetricAlarms[].AlarmName"
