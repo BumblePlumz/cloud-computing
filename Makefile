@@ -1,4 +1,4 @@
-.PHONY: up down faas-url faas-test iam-verify iam-policy benchmark storage-verify s3-audit localstack-check localstack-start localstack-start-pro localstack-stop localstack-logs localstack-status localstack-start-legacy terraform-init terraform-plan terraform-apply terraform-destroy terraform-deploy terraform-deploy-plan terraform-deploy-destroy aws-tables aws-users aws-buckets aws-files aws-iam aws-logs aws-verify app-run
+.PHONY: up down faas-url faas-test iam-verify iam-policy benchmark storage-verify s3-audit scaling-validate localstack-check localstack-start localstack-start-pro localstack-stop localstack-logs localstack-status localstack-start-legacy terraform-init terraform-plan terraform-apply terraform-destroy terraform-deploy terraform-deploy-plan terraform-deploy-destroy aws-tables aws-users aws-buckets aws-files aws-iam aws-logs aws-verify app-run
 
 LOCALSTACK_CONTAINER ?= localstack-main
 LOCALSTACK_IMAGE ?= localstack/localstack:3.8.1
@@ -14,6 +14,7 @@ FAAS_MOUNT := $(PWD_MOUNT)\02-faas
 IAM_MOUNT := $(PWD_MOUNT)\03-iam
 STORAGE_MOUNT := $(PWD_MOUNT)\04-stockage
 VULN_MOUNT := $(PWD_MOUNT)\05-vulnerabilite
+SCALING_MOUNT := $(PWD_MOUNT)\06-scaling
 
 localstack-check:
 	@powershell -NoProfile -Command "Write-Host '== DOCKER CLIENT =='; docker version --format 'Client {{.Client.Version}}'; Write-Host ''; Write-Host '== DOCKER SERVER =='; docker version --format 'Server {{.Server.Version}}'; Write-Host ''; Write-Host '== LOCALSTACK_AUTH_TOKEN =='; if ('$(TOKEN)' -or '$(LOCALSTACK_AUTH_TOKEN)' -or $$env:LOCALSTACK_AUTH_TOKEN) { Write-Host 'present' } else { Write-Host 'missing' }"
@@ -105,6 +106,7 @@ FAAS_MOUNT := $(PWD_MOUNT)/02-faas
 IAM_MOUNT := $(PWD_MOUNT)/03-iam
 STORAGE_MOUNT := $(PWD_MOUNT)/04-stockage
 VULN_MOUNT := $(PWD_MOUNT)/05-vulnerabilite
+SCALING_MOUNT := $(PWD_MOUNT)/06-scaling
 
 localstack-check:
 	@echo "== DOCKER CLIENT =="
@@ -247,3 +249,8 @@ storage-verify:
 
 s3-audit:
 	@docker run --rm -v "$(VULN_MOUNT):/workspace" -w /workspace -e AWS_ENDPOINT_URL=http://host.docker.internal:4566 $(PYTHON_IMAGE) sh -c "pip install --quiet boto3 && python audit.py"
+
+# Projet 06 : Auto Scaling = LocalStack Pro/AWS reel. On valide juste la syntaxe.
+scaling-validate:
+	@docker run --rm -v "$(SCALING_MOUNT):/workspace" -w /workspace $(TERRAFORM_IMAGE) init -backend=false -input=false
+	@docker run --rm -v "$(SCALING_MOUNT):/workspace" -w /workspace $(TERRAFORM_IMAGE) validate
